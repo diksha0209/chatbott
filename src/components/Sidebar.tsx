@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Check,
-  LogOut,
   MessageSquare,
   Pencil,
   Plus,
@@ -9,34 +8,29 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { User } from 'firebase/auth';
 import type { ChatThread } from '../types/chat';
 
 interface SidebarProps {
   openMobile: boolean;
   onCloseMobile: () => void;
-  user: User;
   chats: ChatThread[];
   activeChatId: string | null;
   onSelectChat: (chatId: string) => void;
   onCreateChat: () => void;
   onRenameChat: (chatId: string, newTitle: string) => Promise<void>;
   onDeleteChat: (chatId: string) => Promise<void>;
-  onSignOut: () => Promise<void>;
   loadingChats: boolean;
 }
 
 export function Sidebar({
   openMobile,
   onCloseMobile,
-  user,
   chats,
   activeChatId,
   onSelectChat,
   onCreateChat,
   onRenameChat,
   onDeleteChat,
-  onSignOut,
   loadingChats,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -246,51 +240,13 @@ export function Sidebar({
           })
         )}
       </div>
-
-      {/* User Footer */}
-      <div className="p-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {user.photoURL ? (
-            <img
-              src={user.photoURL}
-              alt={user.displayName || 'User avatar'}
-              referrerPolicy="no-referrer"
-              className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-semibold text-slate-700 dark:text-slate-200 shrink-0">
-              {(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
-              {user.displayName || 'Account'}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-              {user.email}
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onSignOut}
-          aria-label="Sign out"
-          title="Sign out"
-          className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block h-full shrink-0">{sidebarContent}</div>
 
-      {/* Mobile Drawer */}
       {openMobile && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div

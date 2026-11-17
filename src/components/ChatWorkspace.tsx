@@ -24,7 +24,6 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { User } from 'firebase/auth';
 import {
   composePdfSpec,
   parsePdfFile,
@@ -47,7 +46,7 @@ import type {
 import { GeneratedPdfCard } from './GeneratedPdfCard';
 
 interface ChatWorkspaceProps {
-  user: User;
+  workspaceId: string;
   chat: ChatThread | null;
   messages: ChatMessage[];
   documents: ChatDocument[];
@@ -68,7 +67,7 @@ interface PendingAttachment extends PdfAttachmentMeta {
 }
 
 export function ChatWorkspace({
-  user,
+  workspaceId,
   chat,
   messages,
   documents,
@@ -112,7 +111,6 @@ export function ChatWorkspace({
     return Array.from(byId.values());
   };
 
-  // Clear pending attachments only when switching between different existing chats
   useEffect(() => {
     const prev = prevChatIdRef.current;
     const next = chat?.chatId;
@@ -127,7 +125,6 @@ export function ChatWorkspace({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, streamingText, streamingPdf]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -158,7 +155,7 @@ export function ChatWorkspace({
       setUploadingFiles((prev) => [...prev, file.name]);
       try {
         const parsed = await parsePdfFile(file);
-        const savedDoc = await saveChatDocument(user.uid, targetChatId, {
+        const savedDoc = await saveChatDocument(workspaceId, targetChatId, {
           fileName: parsed.fileName,
           pageCount: parsed.pageCount,
           fileSize: parsed.fileSize,
@@ -177,9 +174,8 @@ export function ChatWorkspace({
           },
         ]);
 
-        // Update chat pdfCount immediately in Firestore
         const mergedDocs = getMergedDocuments(targetChatId);
-        await updateChatMetadata(user.uid, targetChatId, {
+        await updateChatMetadata(workspaceId, targetChatId, {
           memorySummary: chat?.memorySummary || '',
           lastMessagePreview:
             chat?.lastMessagePreview || `Uploaded ${savedDoc.fileName}`,
@@ -240,7 +236,7 @@ export function ChatWorkspace({
     const userTurnIndex = messages.length + 1;
     const assistantTurnIndex = userTurnIndex + 1;
 
-    await saveChatMessage(user.uid, targetChatId, {
+    await saveChatMessage(workspaceId, targetChatId, {
       role: 'user',
       content: messageContent,
       turnIndex: userTurnIndex,
@@ -264,7 +260,7 @@ export function ChatWorkspace({
         documents: activeDocuments,
         memorySummary: chat?.memorySummary || '',
         userMessage: messageContent,
-        userDisplayName: user.displayName || user.email?.split('@')[0] || 'User',
+        userDisplayName: 'FolioMind User',
       },
       {
         onDelta: (delta) => {
@@ -286,7 +282,7 @@ export function ChatWorkspace({
               ? `Generated "${finalPdf.title}" (${finalPdf.fileName}).`
               : 'Response completed.');
 
-          await saveChatMessage(user.uid, targetChatId!, {
+          await saveChatMessage(workspaceId, targetChatId!, {
             role: 'assistant',
             content: textToSave,
             turnIndex: assistantTurnIndex,
@@ -298,7 +294,7 @@ export function ChatWorkspace({
             {
               messageId: 'temp_u',
               chatId: targetChatId!,
-              userId: user.uid,
+              workspaceId,
               role: 'user',
               content: messageContent,
               turnIndex: userTurnIndex,
@@ -306,7 +302,7 @@ export function ChatWorkspace({
             {
               messageId: 'temp_a',
               chatId: targetChatId!,
-              userId: user.uid,
+              workspaceId,
               role: 'assistant',
               content: textToSave,
               turnIndex: assistantTurnIndex,
@@ -314,14 +310,13 @@ export function ChatWorkspace({
             },
           ];
 
-          await updateChatMetadata(user.uid, targetChatId!, {
+          await updateChatMetadata(workspaceId, targetChatId!, {
             memorySummary: chat?.memorySummary || '',
             lastMessagePreview: textToSave.slice(0, 280),
             messageCount: assistantTurnIndex,
             pdfCount: activeDocuments.length,
           });
 
-          // Distill updated chronological memory ledger & title in background
           setRefreshingMemory(true);
           try {
             const mem = await refreshThreadMemory({
@@ -329,7 +324,7 @@ export function ChatWorkspace({
               documents: activeDocuments,
               currentTitle: chat?.title || 'New Conversation',
             });
-            await updateChatMetadata(user.uid, targetChatId!, {
+            await updateChatMetadata(workspaceId, targetChatId!, {
               title: mem.title,
               memorySummary: mem.memorySummary,
               lastMessagePreview: textToSave.slice(0, 280),
@@ -385,9 +380,9 @@ export function ChatWorkspace({
         mode: 'message',
         title: chat.title,
         targetContent: msg.content,
-        userDisplayName: user.displayName || 'User',
+        userDisplayName: 'FolioMind User',
       });
-      await attachGeneratedPdfToMessage(user.uid, chat.chatId, msg.messageId, spec);
+      await attachGeneratedPdfToMessage(workspaceId, chat.chatId, msg.messageId, spec);
       onPreviewPdf(spec);
     } catch (err) {
       setErrorBanner(err instanceof Error ? err.message : 'Could not create PDF.');
@@ -406,7 +401,7 @@ export function ChatWorkspace({
         title: chat?.title || 'Conversation Export',
         history: messages,
         documents,
-        userDisplayName: user.displayName || 'User',
+        userDisplayName: 'FolioMind User',
       });
       onPreviewPdf(spec);
     } catch (err) {
@@ -428,7 +423,6 @@ export function ChatWorkspace({
       }}
       onDrop={handleDrop}
     >
-      {/* Drag & Drop PDF Overlay */}
       {dragActive && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-blue-50/90 dark:bg-slate-900/90 border-2 border-dashed border-blue-500 m-3 rounded-2xl pointer-events-none">
           <div className="text-center space-y-2 p-6">
@@ -443,7 +437,7 @@ export function ChatWorkspace({
         </div>
       )}
 
-      {/* Top Bar (3-zone contract) */}
+      {/* Top Bar */}
       <header className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -588,7 +582,7 @@ export function ChatWorkspace({
                   <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                     <div className="flex items-center gap-2 font-mono tabular-nums">
                       <span className="font-semibold text-slate-700 dark:text-slate-300 font-sans">
-                        {isUser ? user.displayName?.split(' ')[0] || 'You' : 'FolioMind'}
+                        {isUser ? 'You' : 'FolioMind'}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span>Turn {String(msg.turnIndex).padStart(2, '0')}</span>
@@ -628,7 +622,6 @@ export function ChatWorkspace({
                     )}
                   </div>
 
-                  {/* Attached PDFs on user turn */}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 pt-1">
                       {msg.attachments.map((att) => (
@@ -648,7 +641,6 @@ export function ChatWorkspace({
                     </div>
                   )}
 
-                  {/* Content */}
                   {isUser ? (
                     <p className="text-sm sm:text-[15px] leading-relaxed text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
                       {msg.content}
@@ -661,7 +653,6 @@ export function ChatWorkspace({
                     </div>
                   )}
 
-                  {/* Generated PDF Artifact Card */}
                   {msg.generatedPdf && (
                     <div className="pt-2">
                       <GeneratedPdfCard
@@ -675,7 +666,6 @@ export function ChatWorkspace({
             })
           )}
 
-          {/* Live Streaming Assistant Turn */}
           {isStreaming && (
             <article className="py-2 space-y-2.5">
               <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
@@ -711,7 +701,6 @@ export function ChatWorkspace({
         </div>
       </div>
 
-      {/* Error Alert */}
       {errorBanner && (
         <div className="px-4 sm:px-6 pb-2">
           <div
@@ -735,7 +724,6 @@ export function ChatWorkspace({
       <div className="px-4 sm:px-6 pb-4 pt-2 border-t border-slate-200/70 dark:border-slate-800/80 bg-white dark:bg-slate-950 shrink-0">
         <div className="max-w-3xl mx-auto">
           <div className="border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 rounded-2xl p-2.5 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
-            {/* Pending / Uploading PDFs */}
             {(pendingAttachments.length > 0 || uploadingFiles.length > 0) && (
               <div className="flex flex-wrap gap-2 px-2 pt-1 pb-2.5 border-b border-slate-200/80 dark:border-slate-800 mb-2">
                 {uploadingFiles.map((fileName) => (

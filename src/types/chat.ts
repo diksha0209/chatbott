@@ -29,7 +29,7 @@ export interface GeneratedPdfSpec {
 
 export interface ChatThread {
   chatId: string;
-  userId: string;
+  workspaceId: string;
   title: string;
   memorySummary: string;
   lastMessagePreview: string;
@@ -44,7 +44,7 @@ export interface ChatThread {
 export interface ChatMessage {
   messageId: string;
   chatId: string;
-  userId: string;
+  workspaceId: string;
   role: 'user' | 'assistant';
   content: string;
   turnIndex: number;
@@ -57,7 +57,7 @@ export interface ChatMessage {
 export interface ChatDocument {
   docId: string;
   chatId: string;
-  userId: string;
+  workspaceId: string;
   fileName: string;
   pageCount: number;
   fileSize: number;
@@ -74,13 +74,4 @@ export interface ParsedPdfResult {
   extractedText: string;
   summary: string;
   isScannedFallback: boolean;
-}
-
-export interface UserProfile {
-  uid: string;
-  displayName: string;
-  email: string;
-  photoURL?: string;
-  createdAt?: unknown;
-  updatedAt?: unknown;
 }

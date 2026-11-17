@@ -2,7 +2,6 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -14,7 +13,6 @@ import {
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { User } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import type {
   ChatDocument,
@@ -41,6 +39,21 @@ export function makeSafeId(prefix: string): string {
       ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
       : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   return `${prefix}_${randomPart}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+}
+
+export function getOrCreateWorkspaceId(): string {
+  const storageKey = 'foliomind-workspace-id';
+  try {
+    const existing = localStorage.getItem(storageKey);
+    if (existing && /^[a-zA-Z0-9_-]{8,120}$/.test(existing)) {
+      return existing;
+    }
+    const created = makeSafeId('ws');
+    localStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    return makeSafeId('ws');
+  }
 }
 
 function clampString(value: string, maxLen: number): string {
@@ -75,46 +88,15 @@ function sanitizePdfSpec(spec: GeneratedPdfSpec): GeneratedPdfSpec {
   };
 }
 
-export async function ensureUserProfile(user: User): Promise<void> {
-  const path = `users/${user.uid}`;
-  const ref = doc(db, 'users', user.uid);
-  const displayName = clampString(user.displayName || user.email?.split('@')[0] || 'User', 120);
-  const email = clampString(user.email || 'user@example.com', 200);
-  const photoURL = user.photoURL ? clampString(user.photoURL, 500) : undefined;
-
-  try {
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        uid: user.uid,
-        displayName,
-        email,
-        ...(photoURL ? { photoURL } : {}),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } else {
-      await updateDoc(ref, {
-        displayName,
-        email,
-        ...(photoURL ? { photoURL } : {}),
-        updatedAt: serverTimestamp(),
-      });
-    }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
-}
-
 export function subscribeToChats(
-  userId: string,
+  workspaceId: string,
   onData: (chats: ChatThread[]) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
-  const path = `users/${userId}/chats`;
+  const path = `workspaces/${workspaceId}/chats`;
   const q = query(
-    collection(db, 'users', userId, 'chats'),
-    where('userId', '==', userId),
+    collection(db, 'workspaces', workspaceId, 'chats'),
+    where('workspaceId', '==', workspaceId),
   );
 
   return onSnapshot(
@@ -125,7 +107,7 @@ export function subscribeToChats(
           const raw = d.data();
           return {
             chatId: String(raw.chatId || d.id),
-            userId: String(raw.userId || userId),
+            workspaceId: String(raw.workspaceId || workspaceId),
             title: String(raw.title || 'Untitled Chat'),
             memorySummary: String(raw.memorySummary || ''),
             lastMessagePreview: String(raw.lastMessagePreview || ''),
@@ -151,15 +133,15 @@ export function subscribeToChats(
 }
 
 export function subscribeToMessages(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   onData: (messages: ChatMessage[]) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
-  const path = `users/${userId}/chats/${chatId}/messages`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}/messages`;
   const q = query(
-    collection(db, 'users', userId, 'chats', chatId, 'messages'),
-    where('userId', '==', userId),
+    collection(db, 'workspaces', workspaceId, 'chats', chatId, 'messages'),
+    where('workspaceId', '==', workspaceId),
   );
 
   return onSnapshot(
@@ -171,7 +153,7 @@ export function subscribeToMessages(
           return {
             messageId: String(raw.messageId || d.id),
             chatId: String(raw.chatId || chatId),
-            userId: String(raw.userId || userId),
+            workspaceId: String(raw.workspaceId || workspaceId),
             role: (raw.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
             content: String(raw.content || ''),
             turnIndex: Number(raw.turnIndex || 1),
@@ -199,15 +181,15 @@ export function subscribeToMessages(
 }
 
 export function subscribeToDocuments(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   onData: (docs: ChatDocument[]) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
-  const path = `users/${userId}/chats/${chatId}/documents`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}/documents`;
   const q = query(
-    collection(db, 'users', userId, 'chats', chatId, 'documents'),
-    where('userId', '==', userId),
+    collection(db, 'workspaces', workspaceId, 'chats', chatId, 'documents'),
+    where('workspaceId', '==', workspaceId),
   );
 
   return onSnapshot(
@@ -219,7 +201,7 @@ export function subscribeToDocuments(
           return {
             docId: String(raw.docId || d.id),
             chatId: String(raw.chatId || chatId),
-            userId: String(raw.userId || userId),
+            workspaceId: String(raw.workspaceId || workspaceId),
             fileName: String(raw.fileName || 'document.pdf'),
             pageCount: Number(raw.pageCount || 1),
             fileSize: Number(raw.fileSize || 0),
@@ -242,13 +224,16 @@ export function subscribeToDocuments(
   );
 }
 
-export async function createChatThread(userId: string, title = 'New Conversation'): Promise<string> {
+export async function createChatThread(
+  workspaceId: string,
+  title = 'New Conversation',
+): Promise<string> {
   const chatId = makeSafeId('chat');
-  const path = `users/${userId}/chats/${chatId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}`;
   try {
-    await setDoc(doc(db, 'users', userId, 'chats', chatId), {
+    await setDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId), {
       chatId,
-      userId,
+      workspaceId,
       title: clampString(title.trim() || 'New Conversation', 160),
       memorySummary: '',
       lastMessagePreview: '',
@@ -264,13 +249,13 @@ export async function createChatThread(userId: string, title = 'New Conversation
 }
 
 export async function renameChatThread(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   title: string,
 ): Promise<void> {
-  const path = `users/${userId}/chats/${chatId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}`;
   try {
-    await updateDoc(doc(db, 'users', userId, 'chats', chatId), {
+    await updateDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId), {
       title: clampString(title.trim() || 'Untitled Chat', 160),
       updatedAt: serverTimestamp(),
     });
@@ -280,7 +265,7 @@ export async function renameChatThread(
 }
 
 export async function updateChatMetadata(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   updates: {
     title?: string;
@@ -290,9 +275,9 @@ export async function updateChatMetadata(
     pdfCount: number;
   },
 ): Promise<void> {
-  const path = `users/${userId}/chats/${chatId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}`;
   try {
-    await updateDoc(doc(db, 'users', userId, 'chats', chatId), {
+    await updateDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId), {
       ...(updates.title ? { title: clampString(updates.title, 160) } : {}),
       memorySummary: clampString(updates.memorySummary, 12000),
       lastMessagePreview: clampString(updates.lastMessagePreview, 300),
@@ -306,7 +291,7 @@ export async function updateChatMetadata(
 }
 
 export async function saveChatMessage(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   input: {
     role: 'user' | 'assistant';
@@ -317,7 +302,7 @@ export async function saveChatMessage(
   },
 ): Promise<string> {
   const messageId = makeSafeId('msg');
-  const path = `users/${userId}/chats/${chatId}/messages/${messageId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}/messages/${messageId}`;
   const cleanAttachments = input.attachments?.slice(0, 5).map((a) => ({
     docId: a.docId,
     fileName: clampString(a.fileName, 255),
@@ -326,10 +311,10 @@ export async function saveChatMessage(
   }));
 
   try {
-    await setDoc(doc(db, 'users', userId, 'chats', chatId, 'messages', messageId), {
+    await setDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId, 'messages', messageId), {
       messageId,
       chatId,
-      userId,
+      workspaceId,
       role: input.role,
       content: clampString(input.content, 100000),
       turnIndex: Math.max(1, Math.floor(input.turnIndex)),
@@ -348,14 +333,14 @@ export async function saveChatMessage(
 }
 
 export async function attachGeneratedPdfToMessage(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   messageId: string,
   generatedPdf: GeneratedPdfSpec,
 ): Promise<void> {
-  const path = `users/${userId}/chats/${chatId}/messages/${messageId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}/messages/${messageId}`;
   try {
-    await updateDoc(doc(db, 'users', userId, 'chats', chatId, 'messages', messageId), {
+    await updateDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId, 'messages', messageId), {
       generatedPdf: sanitizePdfSpec(generatedPdf),
     });
   } catch (error) {
@@ -364,7 +349,7 @@ export async function attachGeneratedPdfToMessage(
 }
 
 export async function saveChatDocument(
-  userId: string,
+  workspaceId: string,
   chatId: string,
   input: {
     docId?: string;
@@ -376,7 +361,7 @@ export async function saveChatDocument(
   },
 ): Promise<ChatDocument> {
   const docId = input.docId || makeSafeId('doc');
-  const path = `users/${userId}/chats/${chatId}/documents/${docId}`;
+  const path = `workspaces/${workspaceId}/chats/${chatId}/documents/${docId}`;
   const cleanFileName = clampString(input.fileName, 255);
   const cleanText = clampString(input.extractedText, 450000);
   const cleanSummary = clampString(input.summary, 8000);
@@ -384,10 +369,10 @@ export async function saveChatDocument(
   const fileSize = Math.max(0, Math.min(52428800, Math.floor(input.fileSize)));
 
   try {
-    await setDoc(doc(db, 'users', userId, 'chats', chatId, 'documents', docId), {
+    await setDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId, 'documents', docId), {
       docId,
       chatId,
-      userId,
+      workspaceId,
       fileName: cleanFileName,
       pageCount,
       fileSize,
@@ -398,7 +383,7 @@ export async function saveChatDocument(
     return {
       docId,
       chatId,
-      userId,
+      workspaceId,
       fileName: cleanFileName,
       pageCount,
       fileSize,
@@ -411,24 +396,32 @@ export async function saveChatDocument(
   }
 }
 
-export async function deleteChatThread(userId: string, chatId: string): Promise<void> {
-  const chatPath = `users/${userId}/chats/${chatId}`;
+export async function deleteChatThread(
+  workspaceId: string,
+  chatId: string,
+): Promise<void> {
+  const chatPath = `workspaces/${workspaceId}/chats/${chatId}`;
   try {
     const msgsSnap = await getDocs(
-      query(collection(db, 'users', userId, 'chats', chatId, 'messages'), where('userId', '==', userId)),
+      query(
+        collection(db, 'workspaces', workspaceId, 'chats', chatId, 'messages'),
+        where('workspaceId', '==', workspaceId),
+      ),
     );
     const docsSnap = await getDocs(
-      query(collection(db, 'users', userId, 'chats', chatId, 'documents'), where('userId', '==', userId)),
+      query(
+        collection(db, 'workspaces', workspaceId, 'chats', chatId, 'documents'),
+        where('workspaceId', '==', workspaceId),
+      ),
     );
 
     const allRefs = [...msgsSnap.docs.map((d) => d.ref), ...docsSnap.docs.map((d) => d.ref)];
-    // Commit in chunks of 400 to stay under Firestore 500 write batch limit
     for (let i = 0; i < allRefs.length; i += 400) {
       const batch = writeBatch(db);
       allRefs.slice(i, i + 400).forEach((r) => batch.delete(r));
       await batch.commit();
     }
-    await deleteDoc(doc(db, 'users', userId, 'chats', chatId));
+    await deleteDoc(doc(db, 'workspaces', workspaceId, 'chats', chatId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, chatPath);
   }
