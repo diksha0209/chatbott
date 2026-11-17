@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .dark body {
+    background-color: #0b1120;
+    color: #f1f5f9;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp Markdown Prose Styling */
+.prose-chat {
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: inherit;
+}
+
+.prose-chat > *:first-child {
+  margin-top: 0;
+}
+
+.prose-chat > *:last-child {
+  margin-bottom: 0;
+}
+
+.prose-chat p {
+  margin-top: 0.625rem;
+  margin-bottom: 0.625rem;
+}
+
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-chat h1 {
+  font-size: 1.25rem;
+}
+
+.prose-chat h2 {
+  font-size: 1.0625rem;
+}
+
+.prose-chat h3 {
+  font-size: 0.9375rem;
+}
+
+.prose-chat ul,
+.prose-chat ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-left: 1.375rem;
+}
+
+.prose-chat ul {
+  list-style-type: disc;
+}
+
+.prose-chat ol {
+  list-style-type: decimal;
+}
+
+.prose-chat li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.prose-chat blockquote {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background-color: #f8fafc;
+  color: #475569;
+}
+
+.dark .prose-chat blockquote {
+  border-color: #1e293b;
+  background-color: #0f172a;
+  color: #94a3b8;
+}
+
+.prose-chat code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  padding: 0.125rem 0.35rem;
+  border-radius: 0.25rem;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .prose-chat code {
+  background-color: #1e293b;
+  color: #e2e8f0;
+}
+
+.prose-chat pre {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.5rem;
+  background-color: #0f172a;
+  color: #f8fafc;
+  overflow-x: auto;
+  border: 1px solid #1e293b;
+}
+
+.prose-chat pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: 0.8125rem;
+}
+
+.prose-chat table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.875rem;
+  margin-bottom: 0.875rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.dark .prose-chat th,
+.dark .prose-chat td {
+  border-color: #1e293b;
+}
+
+.prose-chat th {
+  background-color: #f8fafc;
+  font-weight: 600;
+}
+
+.dark .prose-chat th {
+  background-color: #0f172a;
+}
+
+.prose-chat a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dark .prose-chat a {
+  color: #60a5fa;
+}

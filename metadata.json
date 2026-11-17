@@ -1,0 +1,6 @@
+{
+  "name": "FolioMind",
+  "description": "An intelligent document-aware chatbot that remembers every conversation from start to finish, reads uploaded PDFs, and generates downloadable PDFs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,232 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function chatParentPath(userId, chatId) {
+      return /databases/$(database)/documents/users/$(userId)/chats/$(chatId);
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatThread(data, userId, chatId) {
+      return data.keys().hasAll([
+          'chatId', 'userId', 'title', 'memorySummary', 'lastMessagePreview',
+          'messageCount', 'pdfCount', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'chatId', 'userId', 'title', 'memorySummary', 'lastMessagePreview',
+          'messageCount', 'pdfCount', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.chatId)
+        && data.chatId == chatId
+        && isValidId(data.userId)
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.memorySummary is string && data.memorySummary.size() <= 12000
+        && data.lastMessagePreview is string && data.lastMessagePreview.size() <= 300
+        && data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 50000
+        && data.pdfCount is int && data.pdfCount >= 0 && data.pdfCount <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAttachmentList(listData) {
+      return listData is list
+        && listData.size() <= 5
+        && (listData.size() == 0 || (
+          listData[0] is map
+          && listData[0].keys().hasAll(['docId', 'fileName', 'pageCount', 'fileSize'])
+          && listData[0].keys().hasOnly(['docId', 'fileName', 'pageCount', 'fileSize'])
+          && isValidId(listData[0].docId)
+          && listData[0].fileName is string && listData[0].fileName.size() >= 1 && listData[0].fileName.size() <= 255
+          && listData[0].pageCount is int && listData[0].pageCount >= 0 && listData[0].pageCount <= 5000
+          && listData[0].fileSize is int && listData[0].fileSize >= 0 && listData[0].fileSize <= 52428800
+        ));
+    }
+
+    function isValidGeneratedPdf(pdfData) {
+      return pdfData is map
+        && pdfData.keys().hasAll(['title', 'fileName', 'createdAtIso', 'sections'])
+        && pdfData.keys().hasOnly(['title', 'subtitle', 'author', 'fileName', 'createdAtIso', 'summary', 'sections'])
+        && pdfData.title is string && pdfData.title.size() >= 1 && pdfData.title.size() <= 200
+        && (!('subtitle' in pdfData) || (pdfData.subtitle is string && pdfData.subtitle.size() <= 300))
+        && (!('author' in pdfData) || (pdfData.author is string && pdfData.author.size() <= 120))
+        && pdfData.fileName is string && pdfData.fileName.size() >= 1 && pdfData.fileName.size() <= 200
+        && pdfData.createdAtIso is string && pdfData.createdAtIso.size() <= 64
+        && (!('summary' in pdfData) || (pdfData.summary is string && pdfData.summary.size() <= 4000))
+        && pdfData.sections is list && pdfData.sections.size() <= 40
+        && (pdfData.sections.size() == 0 || pdfData.sections[0] is map);
+    }
+
+    function isValidChatMessage(data, userId, chatId, messageId) {
+      return data.keys().hasAll(['messageId', 'chatId', 'userId', 'role', 'content', 'turnIndex', 'createdAt'])
+        && data.keys().hasOnly([
+          'messageId', 'chatId', 'userId', 'role', 'content', 'turnIndex',
+          'attachments', 'generatedPdf', 'createdAt'
+        ])
+        && isValidId(data.messageId)
+        && data.messageId == messageId
+        && isValidId(data.chatId)
+        && data.chatId == chatId
+        && isValidId(data.userId)
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && data.role in ['user', 'assistant']
+        && data.content is string && data.content.size() <= 100000
+        && data.turnIndex is int && data.turnIndex >= 1 && data.turnIndex <= 50000
+        && (!('attachments' in data) || isValidAttachmentList(data.attachments))
+        && (!('generatedPdf' in data) || isValidGeneratedPdf(data.generatedPdf))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatDocument(data, userId, chatId, docId) {
+      return data.keys().hasAll([
+          'docId', 'chatId', 'userId', 'fileName', 'pageCount',
+          'fileSize', 'extractedText', 'summary', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'docId', 'chatId', 'userId', 'fileName', 'pageCount',
+          'fileSize', 'extractedText', 'summary', 'createdAt'
+        ])
+        && isValidId(data.docId)
+        && data.docId == docId
+        && isValidId(data.chatId)
+        && data.chatId == chatId
+        && isValidId(data.userId)
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 255
+        && data.pageCount is int && data.pageCount >= 0 && data.pageCount <= 5000
+        && data.fileSize is int && data.fileSize >= 0 && data.fileSize <= 52428800
+        && data.extractedText is string && data.extractedText.size() <= 450000
+        && data.summary is string && data.summary.size() <= 8000
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if false;
+
+      match /chats/{chatId} {
+        allow get: if isValidId(userId) && isValidId(chatId) && isOwner(userId) && existing().userId == request.auth.uid;
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(chatId)
+          && isOwner(userId)
+          && isValidChatThread(incoming(), userId, chatId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(chatId)
+          && isOwner(userId)
+          && isValidChatThread(incoming(), userId, chatId)
+          && incoming().chatId == existing().chatId
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['memorySummary', 'lastMessagePreview', 'messageCount', 'pdfCount', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'memorySummary', 'lastMessagePreview', 'messageCount', 'pdfCount', 'updatedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(chatId) && isOwner(userId) && existing().userId == request.auth.uid;
+
+        match /messages/{messageId} {
+          allow get: if isValidId(userId) && isValidId(chatId) && isValidId(messageId)
+            && isOwner(userId)
+            && existing().userId == request.auth.uid;
+          allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+          allow create: if isValidId(userId) && isValidId(chatId) && isValidId(messageId)
+            && isOwner(userId)
+            && isValidChatMessage(incoming(), userId, chatId, messageId)
+            && incoming().createdAt == request.time
+            && exists(chatParentPath(userId, chatId))
+            && get(chatParentPath(userId, chatId)).data.userId == request.auth.uid;
+          allow update: if isValidId(userId) && isValidId(chatId) && isValidId(messageId)
+            && isOwner(userId)
+            && isValidChatMessage(incoming(), userId, chatId, messageId)
+            && incoming().messageId == existing().messageId
+            && incoming().chatId == existing().chatId
+            && incoming().userId == existing().userId
+            && incoming().role == existing().role
+            && incoming().content == existing().content
+            && incoming().turnIndex == existing().turnIndex
+            && incoming().createdAt == existing().createdAt
+            && exists(chatParentPath(userId, chatId))
+            && get(chatParentPath(userId, chatId)).data.userId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['generatedPdf']);
+          allow delete: if isValidId(userId) && isValidId(chatId) && isValidId(messageId)
+            && isOwner(userId)
+            && existing().userId == request.auth.uid;
+        }
+
+        match /documents/{docId} {
+          allow get: if isValidId(userId) && isValidId(chatId) && isValidId(docId)
+            && isOwner(userId)
+            && existing().userId == request.auth.uid;
+          allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+          allow create: if isValidId(userId) && isValidId(chatId) && isValidId(docId)
+            && isOwner(userId)
+            && isValidChatDocument(incoming(), userId, chatId, docId)
+            && incoming().createdAt == request.time
+            && exists(chatParentPath(userId, chatId))
+            && get(chatParentPath(userId, chatId)).data.userId == request.auth.uid;
+          allow update: if false;
+          allow delete: if isValidId(userId) && isValidId(chatId) && isValidId(docId)
+            && isOwner(userId)
+            && existing().userId == request.auth.uid;
+        }
+      }
+    }
+  }
+}
